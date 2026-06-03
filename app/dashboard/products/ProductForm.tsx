@@ -1,117 +1,144 @@
 "use client";
 
-import { useState } from "react";
+import { useActionState, useEffect, useRef } from "react";
+import { useFormStatus } from "react-dom";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/Button";
+import { cn } from "@/lib/cn";
+
+import { createProduct, updateProduct, type FormState } from "./actions";
 
 interface Product {
-  id?: string;
+  id: string;
   name: string;
   price: number;
   stock: number;
 }
 
-interface Props {
-  onSuccess: () => void;
-  editProduct?: Product | null;
+interface ProductFormProps {
+  editing: Product | null;
+  onDone: () => void;
 }
 
-export default function ProductForm({
-  onSuccess,
-  editProduct,
-}: Props) {
-  const [name, setName] = useState(
-    editProduct?.name || ""
-  );
+const initialState: FormState = { ok: false };
 
-  const [price, setPrice] = useState(
-    editProduct?.price || 0
-  );
+export function ProductForm({ editing, onDone }: ProductFormProps) {
+  const action = editing
+    ? updateProduct.bind(null, editing.id)
+    : createProduct;
 
-  const [stock, setStock] = useState(
-    editProduct?.stock || 0
-  );
+  const [state, formAction] = useActionState(action, initialState);
+  const formRef = useRef<HTMLFormElement>(null);
 
-  async function handleSubmit(
-    e: React.FormEvent
-  ) {
-    e.preventDefault();
-
-    const url = editProduct
-      ? `/api/products/${editProduct.id}`
-      : "/api/products";
-
-    const method = editProduct
-      ? "PUT"
-      : "POST";
-
-    const response = await fetch(url, {
-      method,
-      headers: {
-        "Content-Type":
-          "application/json",
-      },
-      body: JSON.stringify({
-        name,
-        price,
-        stock,
-      }),
-    });
-
-    if (response.ok) {
-      setName("");
-      setPrice(0);
-      setStock(0);
-
-      onSuccess();
+  // Toast + reset on each new server response.
+  useEffect(() => {
+    if (!state) return;
+    if (state.ok) {
+      toast.success(state.message ?? "Berhasil");
+      formRef.current?.reset();
+      onDone();
+    } else if (state.message && !state.fieldErrors) {
+      // Only surface a top-level toast when there are no inline field errors —
+      // otherwise the inline messages already tell the user what to fix.
+      toast.error(state.message);
     }
-  }
+  }, [state, onDone]);
+
+  const errs = state?.fieldErrors;
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="bg-white p-4 rounded shadow mb-6"
-    >
-      <h2 className="text-xl font-bold mb-4 text-black">
-        {editProduct
-          ? "Edit Product"
-          : "Create Product"}
-      </h2>
-
-      <input
-        className="border p-2 w-full mb-3 text-black"
-        placeholder="Name"
-        value={name}
-        onChange={(e) =>
-          setName(e.target.value)
-        }
+    <form ref={formRef} action={formAction} className="grid gap-4 sm:grid-cols-2">
+      <Field
+        label="Nama Product"
+        name="name"
+        defaultValue={editing?.name ?? ""}
+        error={errs?.name}
+        className="sm:col-span-2"
+        placeholder="Contoh: Indomie Goreng"
+        required
       />
-
-      <input
+      <Field
+        label="Harga (Rp)"
+        name="price"
         type="number"
-        className="border p-2 w-full mb-3 text-black"
-        placeholder="Price"
-        value={price}
-        onChange={(e) =>
-          setPrice(Number(e.target.value))
-        }
+        min={0}
+        step="any"
+        defaultValue={editing?.price ?? ""}
+        error={errs?.price}
+        placeholder="0"
+        required
       />
-
-      <input
+      <Field
+        label="Stock"
+        name="stock"
         type="number"
-        className="border p-2 w-full mb-3 text-black"
-        placeholder="Stock"
-        value={stock}
-        onChange={(e) =>
-          setStock(Number(e.target.value))
-        }
+        min={0}
+        step={1}
+        defaultValue={editing?.stock ?? ""}
+        error={errs?.stock}
+        placeholder="0"
+        required
       />
 
-      <button
-        className="bg-blue-600 text-white px-4 py-2 rounded"
-      >
-        {editProduct
-          ? "Update"
-          : "Create"}
-      </button>
+      <div className="sm:col-span-2 flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
+        {editing && (
+          <Button variant="secondary" onClick={onDone} type="button">
+            Batal
+          </Button>
+        )}
+        <SubmitButton editing={!!editing} />
+      </div>
     </form>
+  );
+}
+
+function SubmitButton({ editing }: { editing: boolean }) {
+  const { pending } = useFormStatus();
+  return (
+    <Button type="submit" disabled={pending}>
+      {pending
+        ? editing
+          ? "Menyimpan..."
+          : "Membuat..."
+        : editing
+          ? "Update Product"
+          : "Create Product"}
+    </Button>
+  );
+}
+
+interface FieldProps extends React.InputHTMLAttributes<HTMLInputElement> {
+  label: string;
+  name: string;
+  error?: string;
+}
+
+function Field({ label, name, error, className, ...rest }: FieldProps) {
+  return (
+    <div className={cn("flex flex-col gap-1", className)}>
+      <label htmlFor={name} className="text-sm font-medium text-slate-700">
+        {label}
+      </label>
+      <input
+        id={name}
+        name={name}
+        className={cn(
+          "h-10 px-3 rounded-lg border bg-white text-slate-900",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+          error
+            ? "border-red-400 focus-visible:ring-red-500"
+            : "border-slate-300",
+        )}
+        aria-invalid={!!error}
+        aria-describedby={error ? `${name}-error` : undefined}
+        {...rest}
+      />
+      {error && (
+        <p id={`${name}-error`} className="text-xs text-red-600">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
